@@ -32,9 +32,9 @@ jobs:
           echo '::set-output name=DATE::$(date +'%D')'
 
       - name: Setup node
-        uses: actions/setup-node@v2
+        uses: actions/setup-node@v3
         with:
-          node-version: 16.x
+          node-version: 18
           cache: 'pnpm'
           cache-dependency-path: 'web/pnpm-lock.yaml'
 
