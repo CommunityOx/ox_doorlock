@@ -8,6 +8,7 @@ local math = require 'glm'
 local doors = {}
 _ENV.doors = doors
 
+ClosestDoor = nil
 
 local function createDoor(door)
 	local oldDoor = doors[door.id]
@@ -46,6 +47,8 @@ end
 
 local nearbyDoors = lib.array:new()
 local nearbyDoorsCount = 0
+local nearbyIds = {}
+local foundIds = {}
 local Entity = Entity
 local ratio = GetAspectRatio(true)
 
@@ -54,47 +57,105 @@ lib.callback('ox_doorlock:getDoors', false, function(data)
 
 	while true do
 		local coords = GetEntityCoords(cache.ped)
-		nearbyDoors = lib.grid.getNearbyEntries(coords)
+		local foundDoors = lib.grid.getNearbyEntries(coords)
+		local newDoors = lib.array:new()
+
+		-- Initial initialization of nearbyDoors
+		if nearbyDoorsCount == 0 then
+			newDoors = foundDoors
+			nearbyDoorsCount = #foundDoors
+
+			for i = 1, nearbyDoorsCount do
+				local nDoor = newDoors[i]
+				nearbyIds[nDoor.id] = true
+			end
+		else
+			-- IDs of doors that were found nearby
+			foundIds = {}
+			for i = 1, #foundDoors do
+				local fDoor = foundDoors[i]
+				foundIds[fDoor.id] = true
+			end
+
+			-- Removing doors that are no longer nearby
+			nearbyDoors = lib.array.filter(nearbyDoors, function(nDoor)
+				return foundIds[nDoor.id]
+			end)
+
+			-- If the count of nearby doors has changed, we need to update the nearbyIds table
+			local preNearbyDoorsCount = #nearbyDoors
+			if preNearbyDoorsCount ~= nearbyDoorsCount then
+				nearbyIds = {}
+				for i = 1, preNearbyDoorsCount do
+					local nDoor = nearbyDoors[i]
+					nearbyIds[nDoor.id] = true
+				end
+			end
+
+			-- Detecting doors that are nearby but not in the nearbyDoors list
+			newDoors = lib.array.filter(foundDoors, function(nDoor)
+				return not nearbyIds[nDoor.id]
+			end)
+		end
+
+		local newDoorsCount = #newDoors
+		if newDoorsCount > 0 then
+			-- Retrieving data only for new doors
+			newDoors:forEach(function(door)
+				local double = door.doors
+
+				nearbyIds[door.id] = true
+
+				if double then
+					for i = 1, 2 do
+						local dDoor = double[i]
+
+						if IsModelValid(dDoor.model) then
+							local entity = not dDoor.entity and GetClosestObjectOfType(dDoor.coords.x, dDoor.coords.y, dDoor.coords.z, 1.0, dDoor.model, false, false, false)
+
+							if entity and entity ~= 0 then
+								dDoor.entity = entity
+								Entity(entity).state.doorId = door.id
+							else dDoor.entity = nil end
+						end
+					end
+				elseif IsModelValid(door.model) then
+					local entity = not door.entity and GetClosestObjectOfType(door.coords.x, door.coords.y, door.coords.z, 1.0, door.model, false, false, false)
+
+					if entity and entity ~= 0 then
+						local dCoords = GetEntityCoords(entity)
+						local min, max = GetModelDimensions(door.model)
+						local center = vec3((min.x + max.x) / 2, (min.y + max.y) / 2, (min.z + max.z) / 2)
+						local heading = GetEntityHeading(entity) * (math.pi / 180)
+						local sin, cos = math.sincos(heading)
+						local rotatedX = cos * center.x - sin * center.y
+						local rotatedY = sin * center.x + cos * center.y
+						door.coords = vec3(dCoords.x + rotatedX, dCoords.y + rotatedY, dCoords.z + center.z)
+						door.entity = entity
+
+						Entity(entity).state.doorId = door.id
+					else door.entity = nil end
+				end
+			end)
+
+			-- Add new doors to the rest of the nearby doors
+			nearbyDoors = lib.array.merge(nearbyDoors, newDoors)
+		end
+
 		nearbyDoorsCount = #nearbyDoors
 		ratio = GetAspectRatio(true)
 
-		for index = 1, nearbyDoorsCount do
-			local door = nearbyDoors[index]
-			local double = door.doors
+		-- Update distance for all nearby doors
+		nearbyDoors:forEach(function(door)
 			door.distance = #(coords - door.coords)
+		end)
 
-			if double then
-				for i = 1, 2 do
-					local dDoor = double[i]
+		-- Sort doors by distance
+		table.sort(nearbyDoors, function(a, b)
+			return a.distance < b.distance
+		end)
 
-					if IsModelValid(dDoor.model) then
-						local entity = not dDoor.entity and GetClosestObjectOfType(dDoor.coords.x, dDoor.coords.y, dDoor.coords.z, 1.0, dDoor.model, false, false, false)
-
-						if entity and entity ~= 0 then
-							dDoor.entity = entity
-							Entity(entity).state.doorId = door.id
-						else dDoor.entity = nil end
-					end
-				end
-			elseif IsModelValid(door.model) then
-				local entity = not door.entity and GetClosestObjectOfType(door.coords.x, door.coords.y, door.coords.z, 1.0, door.model, false, false, false)
-
-				if entity and entity ~= 0 then
-					local dCoords = GetEntityCoords(entity)
-					local min, max = GetModelDimensions(door.model)
-					local center = vec3((min.x + max.x) / 2, (min.y + max.y) / 2, (min.z + max.z) / 2)
-					local heading = GetEntityHeading(entity) * (math.pi / 180)
-					local sin, cos = math.sincos(heading)
-					local rotatedX = cos * center.x - sin * center.y
-					local rotatedY = sin * center.x + cos * center.y
-					door.coords = vec3(dCoords.x + rotatedX, dCoords.y + rotatedY, dCoords.z + center.z)
-					door.entity = entity
-
-					Entity(entity).state.doorId = door.id
-				else door.entity = nil end
-			end
-		end
-
+		ClosestDoor = nearbyDoors[1]
 		Wait(500)
 	end
 end)
@@ -188,7 +249,18 @@ RegisterNetEvent('ox_doorlock:editDoorlock', function(id, data)
 		data.zone = door.zone or GetLabelText(GetNameOfZone(door.coords.x, door.coords.y, door.coords.z))
 		data.radius = data.maxDistance
 
-		if door.distance < 20 then door.distance = 80 end
+		if door.distance then
+			data.distance = door.distance
+		else
+			data.distance = #(GetEntityCoords(cache.ped, door.coords))
+		end
+
+		-- Get the index of a door in the nearbyDoors array for updating
+		local doorIndex = nearbyDoors:findIndex(function (nDoor)
+			return nDoor.id == id
+		end)
+
+		if doorIndex then nearbyDoors[doorIndex] = data end
 
 		lib.grid.addEntry(data)
 	elseif ClosestDoor?.id == id then
@@ -245,8 +317,6 @@ RegisterNetEvent('ox_doorlock:editDoorlock', function(id, data)
 	end
 end)
 
-ClosestDoor = nil
-
 lib.callback.register('ox_doorlock:inputPassCode', function()
 	return ClosestDoor?.passcode and lib.inputDialog(locale('door_lock'), {
 		{
@@ -295,45 +365,40 @@ CreateThread(function()
 	local DrawSprite = drawSprite and DrawSprite
 
 	while true do
-		ClosestDoor = nearbyDoors[1]
-
-		if nearbyDoorsCount > 0 then
-			for i = 1, nearbyDoorsCount do
-				local door = nearbyDoors[i]
-
-				if door.distance < door.maxDistance then
-					if door.distance < ClosestDoor.distance then
-						ClosestDoor = door
-					end
-
-					if drawSprite and not door.hideUi then
-						local sprite = drawSprite[door.state]
-
-						if sprite then
-							SetDrawOrigin(door.coords.x, door.coords.y, door.coords.z)
-							DrawSprite(sprite[1], sprite[2], sprite[3], sprite[4], sprite[5], sprite[6] * ratio, sprite[7], sprite[8], sprite[9], sprite[10], sprite[11])
-							ClearDrawOrigin()
-						end
-					end
+		if ClosestDoor then
+			local door = ClosestDoor
+			if door.distance < door.maxDistance then
+				local sprite = drawSprite[door.state]
+				if drawSprite and sprite and not door.hideUi then
+					SetDrawOrigin(door.coords.x, door.coords.y, door.coords.z)
+					DrawSprite(sprite[1], sprite[2], sprite[3], sprite[4], sprite[5], sprite[6] * ratio, sprite[7], sprite[8], sprite[9], sprite[10], sprite[11])
+					ClearDrawOrigin()
 				end
-			end
-		end
 
-		if ClosestDoor and ClosestDoor.distance < ClosestDoor.maxDistance then
-			if Config.DrawTextUI and not ClosestDoor.hideUi and ClosestDoor.state ~= showUI then
-				lib.showTextUI(ClosestDoor.state == 0 and lockDoor or unlockDoor)
-				showUI = ClosestDoor.state
-			end
+				if Config.DrawTextUI and not door.hideUi and door.state ~= showUI then
+					lib.showTextUI(door.state == 0 and lockDoor or unlockDoor)
+					showUI = door.state
+				end
 
-			if not PickingLock and IsDisabledControlJustReleased(0, 38) then
-				useClosestDoor()
+				if not PickingLock and IsDisabledControlJustReleased(0, 38) then
+					useClosestDoor()
+				end
+
+			elseif showUI then
+				lib.hideTextUI()
+				showUI = nil
 			end
-		elseif showUI then
-			lib.hideTextUI()
-			showUI = nil
 		end
 
 		Wait(nearbyDoorsCount > 0 and 0 or 500)
+	end
+end)
+
+CreateThread(function()
+	-- Clean up memory clutter caused by door checks
+	while true do
+		Wait(30000)
+		collectgarbage("collect")
 	end
 end)
 
