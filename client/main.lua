@@ -4,10 +4,33 @@ end
 
 if not lib.checkDependency('ox_lib', '3.30.4', true) then return end
 
-local math = require 'glm'
+local glm = require 'glm'
 local doors = {}
 _ENV.doors = doors
 
+-- Localize natives for performance
+local AddDoorToSystem = AddDoorToSystem
+local DoorSystemSetDoorState = DoorSystemSetDoorState
+local DoorSystemSetAutomaticRate = DoorSystemSetAutomaticRate
+local GetEntityCoords = GetEntityCoords
+local IsModelValid = IsModelValid
+local GetClosestObjectOfType = GetClosestObjectOfType
+local GetEntityHeading = GetEntityHeading
+local GetModelDimensions = GetModelDimensions
+local IsDoorClosed = IsDoorClosed
+local DoorSystemSetHoldOpen = DoorSystemSetHoldOpen
+local GetLabelText = GetLabelText
+local GetNameOfZone = GetNameOfZone
+local RequestStreamedTextureDict = RequestStreamedTextureDict
+local SetDrawOrigin = SetDrawOrigin
+local ClearDrawOrigin = ClearDrawOrigin
+local DrawSprite = DrawSprite
+local GetGameTimer = GetGameTimer
+local Entity = Entity
+local GetAspectRatio = GetAspectRatio
+local DoesEntityExist = DoesEntityExist
+
+local ratio = GetAspectRatio(true)
 
 local function createDoor(door)
 	local oldDoor = doors[door.id]
@@ -44,59 +67,105 @@ local function createDoor(door)
 	lib.grid.addEntry(door)
 end
 
-local nearbyDoors = lib.array:new()
-local nearbyDoorsCount = 0
-local Entity = Entity
-local ratio = GetAspectRatio(true)
+
 
 lib.callback('ox_doorlock:getDoors', false, function(data)
-	for _, door in pairs(data) do createDoor(door) end
+    for _, door in pairs(data) do createDoor(door) end
 
-	while true do
-		local coords = GetEntityCoords(cache.ped)
-		nearbyDoors = lib.grid.getNearbyEntries(coords)
-		nearbyDoorsCount = #nearbyDoors
-		ratio = GetAspectRatio(true)
+    CreateThread(function()
+        local lockDoor = locale('lock_door')
+        local unlockDoor = locale('unlock_door')
+        local showUI
 
-		for index = 1, nearbyDoorsCount do
-			local door = nearbyDoors[index]
-			local double = door.doors
-			door.distance = #(coords - door.coords)
+        while true do
+            local coords = GetEntityCoords(cache.ped)
+            local newNearbyDoors = lib.grid.getNearbyEntries(coords)
+            local nearbyCount = #newNearbyDoors
 
-			if double then
-				for i = 1, 2 do
-					local dDoor = double[i]
+            local closestDoor = nil
+            local minDist = math.huge
 
-					if IsModelValid(dDoor.model) then
-						local entity = not dDoor.entity and GetClosestObjectOfType(dDoor.coords.x, dDoor.coords.y, dDoor.coords.z, 1.0, dDoor.model, false, false, false)
+            for index = 1, nearbyCount do
+                local door = newNearbyDoors[index]
+                local double = door.doors
+                door.distance = #(coords - door.coords)
 
-						if entity and entity ~= 0 then
-							dDoor.entity = entity
-							Entity(entity).state.doorId = door.id
-						else dDoor.entity = nil end
-					end
-				end
-			elseif IsModelValid(door.model) then
-				local entity = not door.entity and GetClosestObjectOfType(door.coords.x, door.coords.y, door.coords.z, 1.0, door.model, false, false, false)
+                if door.distance < 50 then --- This is a big optimization here. im not sure if you would want to keep it here or move it to a config value
+                    if double then
+                        for i = 1, 2 do
+                            local dDoor = double[i]
 
-				if entity and entity ~= 0 then
-					local dCoords = GetEntityCoords(entity)
-					local min, max = GetModelDimensions(door.model)
-					local center = vec3((min.x + max.x) / 2, (min.y + max.y) / 2, (min.z + max.z) / 2)
-					local heading = GetEntityHeading(entity) * (math.pi / 180)
-					local sin, cos = math.sincos(heading)
-					local rotatedX = cos * center.x - sin * center.y
-					local rotatedY = sin * center.x + cos * center.y
-					door.coords = vec3(dCoords.x + rotatedX, dCoords.y + rotatedY, dCoords.z + center.z)
-					door.entity = entity
+                            if IsModelValid(dDoor.model) then
+                                local entity = dDoor.entity
 
-					Entity(entity).state.doorId = door.id
-				else door.entity = nil end
-			end
-		end
+                                if entity and not DoesEntityExist(entity) then
+                                    dDoor.entity = nil
+                                    entity = nil
+                                end
 
-		Wait(500)
-	end
+                                if not entity then
+                                    entity = GetClosestObjectOfType(dDoor.coords.x, dDoor.coords.y, dDoor.coords.z, 1.0, dDoor.model, false, false, false)
+                                end
+
+                                if entity and entity ~= 0 then
+                                    dDoor.entity = entity
+                                    Entity(entity).state.doorId = door.id
+                                else
+                                    dDoor.entity = nil
+                                end
+                            end
+                        end
+                    elseif IsModelValid(door.model) then
+                        local entity = door.entity
+
+                        if entity and not DoesEntityExist(entity) then
+                            door.entity = nil
+                            entity = nil
+                        end
+
+                        if not entity then
+                            entity = GetClosestObjectOfType(door.coords.x, door.coords.y, door.coords.z, 1.0, door.model, false, false, false)
+                        end
+
+                        if entity and entity ~= 0 then
+                            local dCoords = GetEntityCoords(entity)
+                            local min, max = GetModelDimensions(door.model)
+                            local center = vec3((min.x + max.x) / 2, (min.y + max.y) / 2, (min.z + max.z) / 2)
+                            local heading = GetEntityHeading(entity) * (glm.pi / 180)
+                            local sin, cos = glm.sincos(heading)
+                            local rotatedX = cos * center.x - sin * center.y
+                            local rotatedY = sin * center.x + cos * center.y
+                            door.coords = vec3(dCoords.x + rotatedX, dCoords.y + rotatedY, dCoords.z + center.z)
+                            door.entity = entity
+
+                            Entity(entity).state.doorId = door.id
+                        else
+                            door.entity = nil
+                        end
+                    end
+
+                    if door.distance < door.maxDistance and door.distance < minDist then
+                        minDist = door.distance
+                        closestDoor = door
+                    end
+                end
+            end
+
+            ClosestDoor = closestDoor
+
+            if ClosestDoor then
+                if Config.DrawTextUI and not ClosestDoor.hideUi and ClosestDoor.state ~= showUI then
+                    lib.showTextUI(ClosestDoor.state == 0 and lockDoor or unlockDoor)
+                    showUI = ClosestDoor.state
+                end
+            elseif showUI then
+                lib.hideTextUI()
+                showUI = nil
+            end
+
+            Wait(500)
+        end
+    end)
 end)
 
 RegisterNetEvent('ox_doorlock:setState', function(id, state, source, data)
@@ -245,6 +314,7 @@ RegisterNetEvent('ox_doorlock:editDoorlock', function(id, data)
 	end
 end)
 
+
 ClosestDoor = nil
 
 lib.callback.register('ox_doorlock:inputPassCode', function()
@@ -272,70 +342,53 @@ local function useClosestDoor()
 end
 
 CreateThread(function()
-	local lockDoor = locale('lock_door')
-	local unlockDoor = locale('unlock_door')
-	local showUI
-	local drawSprite = Config.DrawSprite
+    local drawSprite = Config.DrawSprite
 
-	if drawSprite then
-		local sprite1 = drawSprite[0]?[1]
-		local sprite2 = drawSprite[1]?[1]
+    if drawSprite then
+        local sprite1 = drawSprite[0]?[1]
+        local sprite2 = drawSprite[1]?[1]
 
-		if sprite1 then
-			RequestStreamedTextureDict(sprite1, true)
-		end
+        if sprite1 then
+            RequestStreamedTextureDict(sprite1, true)
+        end
 
-		if sprite2 then
-			RequestStreamedTextureDict(sprite2, true)
-		end
-	end
+        if sprite2 then
+            RequestStreamedTextureDict(sprite2, true)
+        end
 
-	local SetDrawOrigin = SetDrawOrigin
-	local ClearDrawOrigin = ClearDrawOrigin
-	local DrawSprite = drawSprite and DrawSprite
+        CreateThread(function()
+            while true do
+                local shouldBeDrawing = false
+                if ClosestDoor then
+                    shouldBeDrawing = drawSprite and not ClosestDoor.hideUi
 
-	while true do
-		ClosestDoor = nearbyDoors[1]
+                    local sprite = drawSprite[ClosestDoor.state]
 
-		if nearbyDoorsCount > 0 then
-			for i = 1, nearbyDoorsCount do
-				local door = nearbyDoors[i]
-
-				if door.distance < door.maxDistance then
-					if door.distance < ClosestDoor.distance then
-						ClosestDoor = door
-					end
-
-					if drawSprite and not door.hideUi then
-						local sprite = drawSprite[door.state]
-
-						if sprite then
-							SetDrawOrigin(door.coords.x, door.coords.y, door.coords.z)
-							DrawSprite(sprite[1], sprite[2], sprite[3], sprite[4], sprite[5], sprite[6] * ratio, sprite[7], sprite[8], sprite[9], sprite[10], sprite[11])
-							ClearDrawOrigin()
-						end
-					end
-				end
-			end
-		end
-
-		if ClosestDoor and ClosestDoor.distance < ClosestDoor.maxDistance then
-			if Config.DrawTextUI and not ClosestDoor.hideUi and ClosestDoor.state ~= showUI then
-				lib.showTextUI(ClosestDoor.state == 0 and lockDoor or unlockDoor)
-				showUI = ClosestDoor.state
-			end
-
-			if not PickingLock and IsDisabledControlJustReleased(0, 38) then
-				useClosestDoor()
-			end
-		elseif showUI then
-			lib.hideTextUI()
-			showUI = nil
-		end
-
-		Wait(nearbyDoorsCount > 0 and 0 or 500)
-	end
+                    if sprite then
+                        ratio = GetAspectRatio(true)
+                        SetDrawOrigin(ClosestDoor.coords.x, ClosestDoor.coords.y, ClosestDoor.coords.z)
+                        DrawSprite(sprite[1], sprite[2], sprite[3], sprite[4], sprite[5], sprite[6] * ratio, sprite[7], sprite[8], sprite[9], sprite[10], sprite[11])
+                        ClearDrawOrigin()
+                    end
+                end
+                Wait(shouldBeDrawing and 0 or 500)
+            end
+        end)
+    end
 end)
+
+lib.addKeybind({
+    name = "doorlock",
+    description = "Lock/Unlock doors",
+    defaultKey = 'E',
+    onPressed = function()
+        if not ClosestDoor or ClosestDoor.distance >= ClosestDoor.maxDistance then return end
+
+        if PickingLock then return end
+
+        useClosestDoor()
+    end
+})
 
 exports('useClosestDoor', useClosestDoor)
 exports('getClosestDoor', function() return ClosestDoor end)
