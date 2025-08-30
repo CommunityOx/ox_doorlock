@@ -346,21 +346,23 @@ CreateThread(function()
 	end
 end)
 
-exports.ox_target:addGlobalObject({
-    name = 'openDoor',
-    label = locale('interact_door'),
-    icon = 'fas fa-user-lock',
-    onSelect = function(data)
-        local door = exports.ox_doorlock:getClosestDoor()
-        if not door then return end
-        exports.ox_doorlock:useClosestDoor(door.id)
-    end,
-    canInteract = function(entityId)
-        local door = exports.ox_doorlock:getClosestDoor()
-        return door ~= nil
-    end,
-    distance = 1
-})
+if Config.TargetDoors then
+	exports.ox_target:addGlobalObject({
+		name = 'openDoor',
+		label = locale('interact_door'),
+		icon = 'fas fa-user-lock',
+		onSelect = function(data)
+			local door = exports.ox_doorlock:getClosestDoor()
+			if not door then return end
+			exports.ox_doorlock:useClosestDoor(door.id)
+		end,
+		canInteract = function(entityId)
+			local door = exports.ox_doorlock:getClosestDoor()
+			return door ~= nil
+		end,
+		distance = 1
+	})
+end
 
 
 exports('useClosestDoor', useClosestDoor)

@@ -36,3 +36,6 @@ Config.LockpickItems = {
 
 ---Play sounds using game audio (sound natives) instead of through NUI.
 Config.NativeAudio = true
+
+-- Enable or disable target interaction for doors
+Config.TargetDoors = true
