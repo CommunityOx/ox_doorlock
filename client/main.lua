@@ -362,5 +362,6 @@ exports.ox_target:addGlobalObject({
     distance = 1
 })
 
+
 exports('useClosestDoor', useClosestDoor)
 exports('getClosestDoor', function() return ClosestDoor end)
