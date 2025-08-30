@@ -1,4 +1,5 @@
 {
+    "interact_door": "Samhandle",
     "unlocked_door": "Låst opp dør",
     "locked_door": "Låst dør",
     "lock_door": "[E] Lås dør",
