@@ -1,4 +1,5 @@
 {
+  "interact_door": "Interact",
   "unlocked_door": "Unlocked door",
   "locked_door": "Locked door",
   "lock_door": "[E] Lock door",

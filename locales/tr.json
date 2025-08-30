@@ -1,4 +1,5 @@
 {
+  "interact_door": "Etkileşim",
   "unlocked_door": "Kapı açıldı",
   "locked_door": "Kapı kilitlendi",
   "lock_door": "[E] Kapıyı Kilitle",

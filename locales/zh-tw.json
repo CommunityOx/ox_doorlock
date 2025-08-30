@@ -1,4 +1,5 @@
 {
+  "interact_door": "互動",
   "unlocked_door": "門已解鎖",
   "locked_door": "門已上鎖",
   "lock_door": "[E] 上鎖",
